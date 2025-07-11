@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, ChangeEvent, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 type Parte = {
   nombre: string;
@@ -10,6 +12,23 @@ type Parte = {
   lugar: string;
   fecha: string;
 };
+
+const AREAS = [
+  'Electricidad',
+  'Fuentes Ornamentales',
+  'Pavimentos',
+  'Viales y terrizos',
+  'Elementos de obra civil',
+  'Estructuras',
+  'Pasarelas',
+  'Vallado',
+  'Red de saneamiento',
+  'Mobiliario Urbano',
+  'Cartelería y señalización',
+  'Edificios',
+];
+
+const ZONAS = ['Madrid Río', 'Parque Lineal', 'Plaza España'];
 
 export default function PartesPage() {
   const [formulario, setFormulario] = useState<Parte>({
@@ -22,11 +41,6 @@ export default function PartesPage() {
   });
 
   const [partes, setPartes] = useState<Parte[]>([]);
-
-  const zonasPorArea: Record<string, string[]> = {
-    Electricidad: ['Madrid Río', 'Parque Lineal', 'Plaza España'],
-    'Fuentes Ornamentales': ['Madrid Río', 'Parque Lineal', 'Plaza España'],
-  };
 
   const manejarCambio = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -45,6 +59,51 @@ export default function PartesPage() {
       trabajo: '',
       lugar: '',
       fecha: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  const exportarExcelPorAño = () => {
+    // Agrupar partes por año
+    const partesPorAño: Record<string, Parte[]> = {};
+
+    partes.forEach((parte) => {
+      const año = new Date(parte.fecha).getFullYear().toString();
+      if (!partesPorAño[año]) partesPorAño[año] = [];
+      partesPorAño[año].push(parte);
+    });
+
+    Object.entries(partesPorAño).forEach(([año, partesDelAño]) => {
+      const libro = XLSX.utils.book_new();
+
+      AREAS.forEach((area) => {
+        const datosPorZona: any[][] = [];
+
+        // Encabezado
+        const encabezadoZona = ZONAS.flatMap((zona) => [zona + ' - Trabajo', zona + ' - Lugar']);
+        datosPorZona.push(encabezadoZona);
+
+        // Filas (cada fila contiene trabajo/lugar por zona)
+        const maxFilas = Math.max(
+          ...ZONAS.map(
+            (zona) =>
+              partesDelAño.filter((p) => p.area === area && p.zona === zona).length
+          )
+        );
+
+        for (let i = 0; i < maxFilas; i++) {
+          const fila = ZONAS.flatMap((zona) => {
+            const partesZona = partesDelAño.filter((p) => p.area === area && p.zona === zona);
+            return partesZona[i] ? [partesZona[i].trabajo, partesZona[i].lugar] : ['', ''];
+          });
+          datosPorZona.push(fila);
+        }
+
+        const hoja = XLSX.utils.aoa_to_sheet(datosPorZona);
+        XLSX.utils.book_append_sheet(libro, hoja, area.slice(0, 31)); // máximo 31 caracteres
+      });
+
+      const buffer = XLSX.write(libro, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([buffer]), `partes_${año}.xlsx`);
     });
   };
 
@@ -80,8 +139,11 @@ export default function PartesPage() {
           onChange={manejarCambio}
           style={inputStyle}
         >
-          <option value="Electricidad">Electricidad</option>
-          <option value="Fuentes Ornamentales">Fuentes Ornamentales</option>
+          {AREAS.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
         </select>
 
         <select
@@ -90,7 +152,7 @@ export default function PartesPage() {
           onChange={manejarCambio}
           style={inputStyle}
         >
-          {zonasPorArea[formulario.area].map((z) => (
+          {ZONAS.map((z) => (
             <option key={z} value={z}>
               {z}
             </option>
@@ -137,6 +199,23 @@ export default function PartesPage() {
         >
           Enviar Parte
         </button>
+
+        {partes.length > 0 && (
+          <button
+            type="button"
+            onClick={exportarExcelPorAño}
+            style={{
+              background: '#4caf50',
+              color: 'white',
+              padding: '10px',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+            }}
+          >
+            Exportar Excel por Año
+          </button>
+        )}
       </form>
     </main>
   );
