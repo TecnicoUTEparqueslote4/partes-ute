@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, useEffect, ChangeEvent } from 'react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import { supabase } from '../../lib/supabaseClient';
 
 type Parte = {
   nombre: string;
@@ -42,6 +43,24 @@ export default function PartesPage() {
 
   const [partes, setPartes] = useState<Parte[]>([]);
 
+  // Cargar partes al inicio
+  useEffect(() => {
+    const cargarPartes = async () => {
+      const { data, error } = await supabase
+        .from('partes')
+        .select('*')
+        .order('fecha', { ascending: true });
+
+      if (error) {
+        console.error('Error al cargar partes:', error.message);
+      } else {
+        setPartes(data as Parte[]);
+      }
+    };
+
+    cargarPartes();
+  }, []);
+
   const manejarCambio = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
@@ -49,21 +68,32 @@ export default function PartesPage() {
     setFormulario((prev) => ({ ...prev, [name]: value }));
   };
 
-  const manejarEnvio = (e: FormEvent) => {
+  const manejarEnvio = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPartes((prev) => [...prev, formulario]);
-    setFormulario({
-      nombre: '',
-      area: 'Electricidad',
-      zona: 'Madrid Río',
-      trabajo: '',
-      lugar: '',
-      fecha: new Date().toISOString().split('T')[0],
-    });
+
+    const { error } = await supabase.from('partes').insert([formulario]);
+
+    if (error) {
+      alert('Error al guardar el parte: ' + error.message);
+    } else {
+      alert('Parte guardado con éxito.');
+      setFormulario((prev) => ({
+        ...prev,
+        trabajo: '',
+        lugar: '',
+      }));
+
+      // Actualizar partes tras guardar
+      const { data: nuevosPartes } = await supabase
+        .from('partes')
+        .select('*')
+        .order('fecha', { ascending: true });
+
+      setPartes(nuevosPartes as Parte[]);
+    }
   };
 
   const exportarExcelPorAño = () => {
-    // Agrupar partes por año
     const partesPorAño: Record<string, Parte[]> = {};
 
     partes.forEach((parte) => {
@@ -77,12 +107,12 @@ export default function PartesPage() {
 
       AREAS.forEach((area) => {
         const datosPorZona: any[][] = [];
-
-        // Encabezado
-        const encabezadoZona = ZONAS.flatMap((zona) => [zona + ' - Trabajo', zona + ' - Lugar']);
+        const encabezadoZona = ZONAS.flatMap((zona) => [
+          zona + ' - Trabajo',
+          zona + ' - Lugar',
+        ]);
         datosPorZona.push(encabezadoZona);
 
-        // Filas (cada fila contiene trabajo/lugar por zona)
         const maxFilas = Math.max(
           ...ZONAS.map(
             (zona) =>
@@ -92,14 +122,18 @@ export default function PartesPage() {
 
         for (let i = 0; i < maxFilas; i++) {
           const fila = ZONAS.flatMap((zona) => {
-            const partesZona = partesDelAño.filter((p) => p.area === area && p.zona === zona);
-            return partesZona[i] ? [partesZona[i].trabajo, partesZona[i].lugar] : ['', ''];
+            const partesZona = partesDelAño.filter(
+              (p) => p.area === area && p.zona === zona
+            );
+            return partesZona[i]
+              ? [partesZona[i].trabajo, partesZona[i].lugar]
+              : ['', ''];
           });
           datosPorZona.push(fila);
         }
 
         const hoja = XLSX.utils.aoa_to_sheet(datosPorZona);
-        XLSX.utils.book_append_sheet(libro, hoja, area.slice(0, 31)); // máximo 31 caracteres
+        XLSX.utils.book_append_sheet(libro, hoja, area.slice(0, 31));
       });
 
       const buffer = XLSX.write(libro, { bookType: 'xlsx', type: 'array' });
@@ -188,14 +222,7 @@ export default function PartesPage() {
 
         <button
           type="submit"
-          style={{
-            background: '#2196f3',
-            color: 'white',
-            padding: '10px',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: 'pointer',
-          }}
+          style={botonEstilo('#2196f3')}
         >
           Enviar Parte
         </button>
@@ -204,14 +231,7 @@ export default function PartesPage() {
           <button
             type="button"
             onClick={exportarExcelPorAño}
-            style={{
-              background: '#4caf50',
-              color: 'white',
-              padding: '10px',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-            }}
+            style={botonEstilo('#4caf50')}
           >
             Exportar Excel por Año
           </button>
@@ -227,3 +247,12 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid #ccc',
   fontSize: '14px',
 };
+
+const botonEstilo = (color: string): React.CSSProperties => ({
+  background: color,
+  color: 'white',
+  padding: '10px',
+  border: 'none',
+  borderRadius: '5px',
+  cursor: 'pointer',
+});
